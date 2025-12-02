@@ -20,84 +20,72 @@ function App() {
   const [events, setEvents] = useState<BookingEvent[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<string>('Disconnected');
   const [autoPublishScheduled, setAutoPublishScheduled] = useState(false);
-  const eventSourceRef = useRef<{ close: () => void } | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
   const timeoutRef = useRef<number | null>(null);
 
-  const subscribeToSSE = async () => {
+  const subscribeToSSE = () => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
     }
 
     setConnectionStatus('Connecting...');
 
-    try {
-      const response = await fetch(
-        `${SSE_BASE_URL}/api/sse/subscribe/bookings/${BOOKING_ID}`,
-        {
-          headers: {
-            'X-API-Key': API_KEY,
-          },
-        }
-      );
+    const url = `${SSE_BASE_URL}/api/sse/subscribe/bookings/${BOOKING_ID}?k=${API_KEY}`;
+    const eventSource = new EventSource(url);
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+    console.log('Creating EventSource with URL:', url);
 
-      const reader = response.body?.getReader();
-      if (!reader) {
-        throw new Error('No response body');
-      }
-
+    eventSource.onopen = () => {
       setConnectionStatus('Connected');
       setIsConnected(true);
+      console.log('SSE connection opened successfully');
+    };
 
-      const decoder = new TextDecoder();
-      let buffer = '';
+    const handleSSEMessage = (event: MessageEvent) => {
+      console.log('Raw SSE message received:', event.data);
+      try {
+        const parsed = JSON.parse(event.data);
+        console.log('Parsed message:', parsed);
 
-      const readStream = async () => {
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
-
-            for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                const data = line.substring(6);
-                try {
-                  const parsed = JSON.parse(data);
-                  if (parsed.type === 'connected') {
-                    console.log('Connected:', parsed.message);
-                  } else {
-                    const bookingEvent: BookingEvent = parsed;
-                    setEvents((prev) => [...prev, bookingEvent]);
-                  }
-                } catch (e) {
-                  console.log('Received:', data);
-                }
-              }
-            }
-          }
-        } catch (error) {
-          console.error('Stream reading error:', error);
-          setConnectionStatus('Connection error');
-          setIsConnected(false);
+        if (parsed.type === 'connected') {
+          console.log('Connected:', parsed.message);
+        } else {
+          const bookingEvent: BookingEvent = parsed;
+          console.log('Adding booking event:', bookingEvent);
+          setEvents((prev) => {
+            const updated = [...prev, bookingEvent];
+            console.log('Updated events array:', updated);
+            return updated;
+          });
         }
-      };
+      } catch (e) {
+        console.error('Failed to parse SSE message:', e);
+        console.log('Raw data:', event.data);
+      }
+    };
 
-      readStream();
+    // Primary handler using onmessage (more reliable)
+    eventSource.onmessage = handleSSEMessage;
 
-      // Store a reference for cleanup
-      eventSourceRef.current = { close: () => reader.cancel() };
-    } catch (error) {
+    // Listen for the actual event type your server sends
+    eventSource.addEventListener('BOOKING_UPDATED', (event) => {
+      console.log('BOOKING_UPDATED event received:', event);
+      handleSSEMessage(event as MessageEvent);
+    });
+
+    eventSource.onerror = (error) => {
       console.error('SSE connection error:', error);
-      setConnectionStatus('Connection failed');
-      setIsConnected(false);
-    }
+      console.log('EventSource readyState:', eventSource.readyState);
+      console.log('CONNECTING=0, OPEN=1, CLOSED=2');
+      if (eventSource.readyState === EventSource.CLOSED) {
+        setConnectionStatus('Connection closed');
+        setIsConnected(false);
+      } else {
+        setConnectionStatus('Connection error (will retry)');
+      }
+    };
+
+    eventSourceRef.current = eventSource;
 
     // Schedule auto-publish after 10 seconds
     if (!autoPublishScheduled) {
@@ -111,12 +99,11 @@ function App() {
   const publishBookingUpdate = async () => {
     try {
       const response = await fetch(
-        `${SSE_BASE_URL}/api/sse/events/bookings/${BOOKING_ID}/updated`,
+        `${SSE_BASE_URL}/api/sse/events/bookings/${BOOKING_ID}/updated?k=${API_KEY}`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-API-Key': API_KEY,
           },
           body: JSON.stringify({
             event_id: `evt-${Date.now()}`,
@@ -133,9 +120,10 @@ function App() {
 
       if (response.ok) {
         const result = await response.json();
-        console.log('Event published:', result);
+        console.log('Event published successfully:', result);
       } else {
-        console.error('Failed to publish event:', response.statusText);
+        const errorText = await response.text();
+        console.error('Failed to publish event:', response.status, errorText);
       }
     } catch (error) {
       console.error('Error publishing event:', error);
