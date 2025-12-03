@@ -4,16 +4,19 @@ import './App.css';
 interface BookingEvent {
   event_class: string;
   event_id: string;
-  booking_id: string;
+  ref_id: string;
+  booking_id?: string;
   transaction_id?: string;
   updated_at: string;
   user_id?: string;
   metadata: Record<string, unknown>;
 }
 
-const SSE_BASE_URL = import.meta.env.VITE_SSE_BASE_URL || 'http://localhost:8081';
+const SSE_BASE_URL = import.meta.env.VITE_SSE_BASE_URL || 'http://localhost:8086';
 const API_KEY = import.meta.env.VITE_API_KEY;
-const BOOKING_ID = 'booking-123';
+// Session ID used as the reference for SSE subscription
+const SESSION_ID = import.meta.env.VITE_SESSION_ID || 'session-' + Date.now();
+const BOOKING_ID = '7f3d5c2e-9a4b-4e8f-b1d6-3c7e2f9a8b5d';
 
 function App() {
   const [isConnected, setIsConnected] = useState(false);
@@ -30,7 +33,7 @@ function App() {
 
     setConnectionStatus('Connecting...');
 
-    const url = `${SSE_BASE_URL}/api/sse/subscribe/bookings/${BOOKING_ID}?k=${API_KEY}`;
+    const url = `${SSE_BASE_URL}/api/sse/subscribe/ref/${SESSION_ID}?k=${API_KEY}`;
     const eventSource = new EventSource(url);
 
     console.log('Creating EventSource with URL:', url);
@@ -99,7 +102,7 @@ function App() {
   const publishBookingUpdate = async () => {
     try {
       const response = await fetch(
-        `${SSE_BASE_URL}/api/sse/events/bookings/${BOOKING_ID}/updated?k=${API_KEY}`,
+        `${SSE_BASE_URL}/api/sse/events/ref/${SESSION_ID}/updated?k=${API_KEY}`,
         {
           method: 'POST',
           headers: {
@@ -107,9 +110,10 @@ function App() {
           },
           body: JSON.stringify({
             event_id: `evt-${Date.now()}`,
+            booking_id: BOOKING_ID,
             transaction_id: `txn-${Date.now()}`,
             updated_at: new Date().toISOString(),
-            user_id: 'user-789',
+            user_id: 'a8c4f2d1-5e7b-4c9a-8f3d-6b2e9a1c5d7f',
             metadata: {
               source: 'react-client',
               triggered_at: new Date().toISOString(),
@@ -166,6 +170,9 @@ function App() {
           </span>
         </p>
         <p>
+          <strong>Session ID (Ref):</strong> {SESSION_ID}
+        </p>
+        <p>
           <strong>Booking ID:</strong> {BOOKING_ID}
         </p>
       </div>
@@ -207,8 +214,13 @@ function App() {
                 </div>
                 <div className="event-body">
                   <p>
-                    <strong>Booking:</strong> {event.booking_id}
+                    <strong>Ref ID:</strong> {event.ref_id}
                   </p>
+                  {event.booking_id && (
+                    <p>
+                      <strong>Booking:</strong> {event.booking_id}
+                    </p>
+                  )}
                   {event.transaction_id && (
                     <p>
                       <strong>Transaction:</strong> {event.transaction_id}

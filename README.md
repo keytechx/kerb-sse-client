@@ -4,13 +4,14 @@ A React TypeScript client for testing the Kerb SSE service. This client demonstr
 
 ## Features
 
-- **SSE Subscription**: Subscribe to booking events via SSE
+- **SSE Subscription**: Subscribe to events via SSE using a session/reference ID
 - **Auto-publish**: Automatically publishes an event 10 seconds after subscribing
 - **Manual publish**: Manually trigger event publishing
 - **Real-time updates**: Display received events in real-time
 - **Connection status**: Show connection status and event count
 - **TypeScript**: Fully typed with TypeScript
 - **React Hooks**: Uses modern React hooks (useState, useEffect, useRef)
+- **Flexible Reference**: Uses session ID as reference for event channels (e.g., paymentSessionId)
 
 ## Prerequisites
 
@@ -21,7 +22,7 @@ cd ../kerb-sse-emitter
 cargo run
 ```
 
-The service should be running on `http://localhost:8081`
+The service should be running on `http://localhost:8086`
 
 ## Getting Started
 
@@ -39,11 +40,12 @@ Copy the example environment file and update with your API key:
 cp .env.local.example .env.local
 ```
 
-Edit `.env.local` and set your API key (get this from the backend `.env` file):
+Edit `.env.local` and set your configuration (get API key from the backend `.env` file):
 
 ```env
-VITE_SSE_BASE_URL=http://localhost:8081
+VITE_SSE_BASE_URL=http://localhost:8086
 VITE_API_KEY=your-actual-api-key-here
+VITE_SESSION_ID=session-test-123
 ```
 
 **Important:** The `.env.local` file is ignored by git and should never be committed.
@@ -61,16 +63,18 @@ The client will be available at `http://localhost:5173`
 ### 1. Subscribe to SSE
 
 Click the "Subscribe to SSE" button to:
-- Establish SSE connection to `http://localhost:8081/api/sse/subscribe/bookings/booking-123`
-- Start receiving events for booking ID `booking-123`
+- Establish SSE connection to `http://localhost:8086/api/sse/subscribe/ref/{session_id}`
+- Start receiving events for the specified session/reference ID
 - Automatically schedule an event to be published after 10 seconds
+
+**Note:** The session ID acts as the reference for the event channel. In production, this would be your `paymentSessionId` or similar identifier.
 
 ### 2. Receive Events
 
 Once subscribed, the client will:
-- Display connection status
+- Display connection status and session ID
 - Show received events in real-time
-- Display event details (ID, fields updated, timestamp, metadata)
+- Display event details (ref ID, booking ID, transaction ID, timestamp, metadata)
 
 ### 3. Publish Events
 
@@ -78,7 +82,7 @@ Events are published to the SSE service via:
 - **Auto-publish**: Automatically after 10 seconds of subscribing
 - **Manual publish**: Click "Manually Publish Event" button
 
-Events are sent to: `POST http://localhost:8081/api/sse/events/bookings/booking-123/updated`
+Events are sent to: `POST http://localhost:8086/api/sse/events/ref/{session_id}/updated`
 
 ## Component Structure
 
@@ -101,23 +105,29 @@ Main component that handles:
 ### Subscribe Endpoint
 
 ```typescript
-GET http://localhost:8081/api/sse/subscribe/bookings/{booking_id}
+GET http://localhost:8086/api/sse/subscribe/ref/{ref_id}?k={api_key}
 ```
+
+- `{ref_id}`: Session ID or any reference identifier (e.g., paymentSessionId)
+- `{api_key}`: API key for authentication
 
 ### Publish Endpoint
 
 ```typescript
-POST http://localhost:8081/api/sse/events/bookings/{booking_id}/updated
+POST http://localhost:8086/api/sse/events/ref/{ref_id}/updated?k={api_key}
 Content-Type: application/json
 
 {
   "event_id": "evt-123",
-  "fields_updated": ["status", "updated_at"],
+  "booking_id": "booking-456",
+  "transaction_id": "txn-789",
   "updated_at": "2025-11-28T10:00:00Z",
   "user_id": "user-789",
   "metadata": {}
 }
 ```
+
+**Note:** The `ref_id` comes from the URL path parameter (not the JSON body). The `booking_id` is included in the body for reference.
 
 ## Build for Production
 
@@ -152,9 +162,10 @@ If you encounter CORS issues, make sure the SSE service has CORS enabled. The Ru
 
 ### Connection Issues
 
-- Ensure the SSE service is running on `http://localhost:8081`
+- Ensure the SSE service is running on `http://localhost:8086`
 - Check browser console for errors
-- Verify the booking ID matches between client and server
+- Verify the session ID is properly configured
+- Ensure the API key is valid
 
 ## License
 
